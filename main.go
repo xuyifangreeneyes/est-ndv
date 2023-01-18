@@ -2,8 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"math/rand"
+	"os"
 	"time"
+
+	"github.com/go-echarts/go-echarts/v2/charts"
+	"github.com/go-echarts/go-echarts/v2/components"
+	"github.com/go-echarts/go-echarts/v2/opts"
 )
 
 func generateZipfData(s, v float64, imax uint64, N int64) []uint64 {
@@ -36,7 +42,7 @@ func sampleData(data []uint64, rate float64) []uint64 {
 }
 
 // https://mmeredith.net/blog/2013/1312_Jackknife_estimators.htm
-func firstOrderJackknifeEstimator(samples []uint64) float64 {
+func firstOrderJackknifeEstimator(samples []uint64, N int64) float64 {
 	h := make(map[uint64]uint64, 1000)
 	for _, x := range samples {
 		h[x] = h[x] + 1
@@ -54,7 +60,7 @@ func firstOrderJackknifeEstimator(samples []uint64) float64 {
 }
 
 // https://mmeredith.net/blog/2013/1312_Jackknife_estimators.htm
-func secondOrderJackknifeEstimator(samples []uint64) float64 {
+func secondOrderJackknifeEstimator(samples []uint64, N int64) float64 {
 	h := make(map[uint64]uint64, 1000)
 	for _, x := range samples {
 		h[x] = h[x] + 1
@@ -102,20 +108,53 @@ func main() {
 	s := 1.5
 	v := 1.0
 	imax := uint64(10000000000)
-	NList := []int64{1e5, 1e7, 1e8}
+	NList := []int64{1e6, 1e7, 1e8}
+	bars := make([]components.Charter, 0, 3)
 	for _, N := range NList {
 		data := generateZipfData(s, v, imax, N)
-		ndv := exactNDV(data)
-		fmt.Printf("zipf dist: s:%v, v:%v, [0, %v], N:%v, NDV:%v\n", s, v, imax, N, ndv)
+		actNDV := exactNDV(data)
+		fmt.Printf("zipf dist: s:%v, v:%v, [0, %v], N:%v, NDV:%v\n", s, v, imax, N, actNDV)
 		sampleRateList := []float64{0.5, 1e-1, 1e-2, 1e-3, 1e-4}
-		for _, sampleRate := range sampleRateList {
-			samples := sampleData(data, sampleRate)
-			estNDV1 := firstOrderJackknifeEstimator(samples)
-			fmt.Printf("sample rate: %v, first-order Jackknife NDV:%v, q-error:%v\n", sampleRate, estNDV1, qerror(float64(ndv), estNDV1))
-			estNDV2 := secondOrderJackknifeEstimator(samples)
-			fmt.Printf("sample rate: %v, second-order Jackknife NDV:%v, q-error:%v\n", sampleRate, estNDV2, qerror(float64(ndv), estNDV2))
-			estNDV3 := duj1Estimator(samples, N)
-			fmt.Printf("sample rate: %v, Duj1 NDV:%v, q-error:%v\n", sampleRate, estNDV3, qerror(float64(ndv), estNDV3))
+		results := make([][]float64, 3)
+		for i := 0; i < 3; i++ {
+			results[i] = make([]float64, len(sampleRateList))
 		}
+		estimatorNames := []string{"first-order Jackknife", "second-order Jackknife", "Duj1"}
+		estimators := []func(samples []uint64, N int64) float64{firstOrderJackknifeEstimator, secondOrderJackknifeEstimator, duj1Estimator}
+		for i, sampleRate := range sampleRateList {
+			samples := sampleData(data, sampleRate)
+			for j, name := range estimatorNames {
+				estNDV := estimators[j](samples, N)
+				qe := qerror(float64(actNDV), estNDV)
+				results[j][i] = qe
+				fmt.Printf("sample rate: %v, %v NDV:%v, q-error:%v\n", sampleRate, name, estNDV, qe)
+			}
+		}
+		bar := charts.NewBar()
+		bar.SetGlobalOptions(
+			charts.WithTitleOpts(opts.Title{Title: fmt.Sprintf("sample-based NDV estimation, Zipf{s:%v, v:%v, [0, %v], N:%v}", s, v, imax, N)}),
+			charts.WithXAxisOpts(opts.XAxis{Name: "sample rate"}),
+			charts.WithYAxisOpts(opts.YAxis{Name: "q-error", Type: "log"}),
+			charts.WithLegendOpts(opts.Legend{Show: true, Right: "5%", Top: "5%"}),
+			charts.WithTooltipOpts(opts.Tooltip{Show: true}))
+		bar.SetXAxis(sampleRateList)
+		for i, name := range estimatorNames {
+			items := make([]opts.BarData, 0, len(sampleRateList))
+			for _, qe := range results[i] {
+				items = append(items, opts.BarData{Value: qe})
+			}
+			bar.AddSeries(name, items)
+		}
+		bars = append(bars, bar)
+	}
+	page := components.NewPage()
+	page.AddCharts(bars...)
+	f, err := os.Create("picture/est-ndv.html")
+	if err != nil {
+		panic(err)
+	}
+	err = page.Render(io.MultiWriter(f))
+	if err != nil {
+		panic(err)
 	}
 }
