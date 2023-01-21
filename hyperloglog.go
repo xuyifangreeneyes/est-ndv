@@ -2,12 +2,12 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
+	"hash"
 	"math"
-)
 
-var (
-	exp32 = math.Pow(2, 32)
+	"github.com/twmb/murmur3"
 )
 
 type HyperLogLog struct {
@@ -15,6 +15,7 @@ type HyperLogLog struct {
 	b         uint8   // Number of bits used to determine register index
 	alpha     float64 // Bias correction constant
 	registers []uint8
+	hashFunc  hash.Hash64
 }
 
 // getAlpha computes bias correction alpha_m.
@@ -48,6 +49,7 @@ func NewHyperLogLog(registers uint32) (*HyperLogLog, error) {
 	h.b = uint8(math.Ceil(math.Log2(float64(registers))))
 	h.alpha = getAlpha(registers)
 	h.Reset()
+	h.hashFunc = murmur3.New64()
 	return h, nil
 }
 
@@ -66,14 +68,28 @@ func rho(val uint64, max uint8) uint8 {
 	return r
 }
 
-// InsertHash inserts val into HyperLogLog. val should be a 64-bit unsigned integer from a good hash function.
-func (h *HyperLogLog) InsertHash(val uint64) {
+// InsertUint64 inserts an uint64 number into HyperLogLog.
+func (h *HyperLogLog) InsertUint64(x uint64) error {
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, x)
+	return h.InsertValue(b)
+}
+
+// InsertValue inserts value into HyperLogLog.
+func (h *HyperLogLog) InsertValue(value []byte) error {
+	h.hashFunc.Reset()
+	_, err := h.hashFunc.Write(value)
+	if err != nil {
+		return err
+	}
+	hashVal := h.hashFunc.Sum64()
 	k := 64 - h.b
-	r := rho(val<<h.b, k)
-	j := val >> k
+	r := rho(hashVal<<h.b, k)
+	j := hashVal >> k
 	if r > h.registers[j] {
 		h.registers[j] = r
 	}
+	return nil
 }
 
 // Count returns the estimated NDV.

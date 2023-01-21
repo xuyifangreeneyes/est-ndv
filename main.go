@@ -104,7 +104,7 @@ func qerror(act, est float64) float64 {
 	return est / act
 }
 
-func main() {
+func benchSampleBasedEstimators() {
 	s := 1.5
 	v := 1.0
 	imax := uint64(10000000000)
@@ -157,4 +157,33 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func testHyperLogLog() {
+	s := 1.5
+	v := 1.0
+	imax := uint64(10000000000)
+	N := int64(10000000)
+	data := generateZipfData(s, v, imax, N)
+	actNDV := exactNDV(data)
+	fmt.Printf("zipf dist: s:%v, v:%v, [0, %v], N:%v, NDV:%v\n", s, v, imax, N, actNDV)
+	registers := uint32(1024)
+	hll, err := NewHyperLogLog(registers)
+	if err != nil {
+		panic(err)
+	}
+	for _, x := range data {
+		err = hll.InsertUint64(x)
+		if err != nil {
+			panic(err)
+		}
+	}
+	estNDV := hll.Count()
+	qe := qerror(float64(actNDV), float64(estNDV))
+	fmt.Printf("HyperLogLog, registers: %v, NDV:%v, q-error:%v\n", registers, estNDV, qe)
+
+}
+
+func main() {
+	testHyperLogLog()
 }
