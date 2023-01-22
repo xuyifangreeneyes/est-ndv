@@ -1,3 +1,5 @@
+// The idea is from https://arxiv.org/pdf/2206.05476.pdf.
+// Its original implementation is https://github.com/llijiajun/NDV_Estimation_in_distributed_environment.
 package main
 
 import (
@@ -125,9 +127,73 @@ func testHyperLogLog() {
 	estNDV := hll.Count()
 	qe := qerror(float64(actNDV), estNDV)
 	fmt.Printf("HyperLogLog, registers: %v, NDV:%v, q-error:%v\n", registers, estNDV, qe)
+}
 
+func collectSketchFromPartition(partitionData []uint64, sampleRate float64, registers uint32) (*HyperLogLog, *HyperLogLog, float64, error) {
+	samples := sampleData(partitionData, sampleRate)
+	h := make(map[uint64]uint64, 1000)
+	for _, x := range samples {
+		h[x] = h[x] + 1
+	}
+	ndvSketch, err := NewHyperLogLog(registers)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	f1Sketch, err := NewHyperLogLog(registers)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	for x, f := range h {
+		err = ndvSketch.InsertUint64(x)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		if f == 1 {
+			err = f1Sketch.InsertUint64(x)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+		}
+	}
+	return ndvSketch, f1Sketch, float64(len(samples)), nil
+}
+
+func testDistSampleEstimator() {
+	s := 1.5
+	v := 1.0
+	imax := uint64(10000000000)
+	N := int64(100000000)
+	data := generateZipfData(s, v, imax, N)
+	actNDV := exactNDV(data)
+	fmt.Printf("zipf dist: s:%v, v:%v, [0, %v], N:%v, NDV:%v\n", s, v, imax, N, actNDV)
+	numPartition := int64(10)
+	numPerPartition := N / numPartition
+	sampleRate := 0.2
+	registers := uint32(1 << 16)
+	ndvSketches := make([]*HyperLogLog, numPartition)
+	f1Sketches := make([]*HyperLogLog, numPartition)
+	n := 0.0
+	var err error
+	for i := int64(0); i < numPartition; i++ {
+		partitionData := data[i*numPerPartition : (i+1)*numPerPartition]
+		var sampleNum float64
+		ndvSketches[i], f1Sketches[i], sampleNum, err = collectSketchFromPartition(partitionData, sampleRate, registers)
+		if err != nil {
+			panic(err)
+		}
+		n += sampleNum
+	}
+	observedNDV, f1, err := EstimateNDVAndF1(ndvSketches, f1Sketches)
+	// first-order jackknife estimator
+	estimatedNDV := observedNDV + (n-1)/n*f1
+	// Chao’s Estimator
+	//estimatedNDV := observedNDV + 0.5*f1*f1/(observedNDV-f1)
+	qe := qerror(float64(actNDV), estimatedNDV)
+	fmt.Printf("dist sample first-order jackknife estimator, partitions:%v, sample rate:%v, registers:%v, NDV:%v, q-error:%v\n", numPartition, sampleRate, registers, estimatedNDV, qe)
 }
 
 func main() {
-	testHyperLogLog()
+	//benchSampleBasedEstimators()
+	//testHyperLogLog()
+	testDistSampleEstimator()
 }
