@@ -53,6 +53,11 @@ func NewHyperLogLog(registers uint32) (*HyperLogLog, error) {
 	return h, nil
 }
 
+// GetRegisterNum returns the number of registers.
+func (h *HyperLogLog) GetRegisterNum() uint32 {
+	return h.m
+}
+
 // Reset sets all registers to zero.
 func (h *HyperLogLog) Reset() {
 	h.registers = make([]uint8, h.m)
@@ -126,4 +131,16 @@ func (h *HyperLogLog) Merge(other *HyperLogLog) error {
 		}
 	}
 	return nil
+}
+
+func (h *HyperLogLog) Clone() *HyperLogLog {
+	registers := make([]uint8, h.m)
+	copy(registers, h.registers)
+	return &HyperLogLog{
+		m:         h.m,
+		b:         h.b,
+		alpha:     h.alpha,
+		registers: registers,
+		hashFunc:  murmur3.New64(),
+	}
 }

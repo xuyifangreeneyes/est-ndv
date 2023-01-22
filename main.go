@@ -41,62 +41,6 @@ func sampleData(data []uint64, rate float64) []uint64 {
 	return samples
 }
 
-// https://mmeredith.net/blog/2013/1312_Jackknife_estimators.htm
-func firstOrderJackknifeEstimator(samples []uint64, N int64) float64 {
-	h := make(map[uint64]uint64, 1000)
-	for _, x := range samples {
-		h[x] = h[x] + 1
-	}
-	n := float64(len(samples))
-	observedNDV := float64(len(h))
-	f1 := 0.0
-	for _, frequency := range h {
-		if frequency == 1 {
-			f1 += 1
-		}
-	}
-	estimatedNDV := observedNDV + (n-1)/n*f1
-	return estimatedNDV
-}
-
-// https://mmeredith.net/blog/2013/1312_Jackknife_estimators.htm
-func secondOrderJackknifeEstimator(samples []uint64, N int64) float64 {
-	h := make(map[uint64]uint64, 1000)
-	for _, x := range samples {
-		h[x] = h[x] + 1
-	}
-	n := float64(len(samples))
-	observedNDV := float64(len(h))
-	f1, f2 := 0.0, 0.0
-	for _, frequency := range h {
-		if frequency == 1 {
-			f1 += 1
-		} else if frequency == 2 {
-			f2 += 1
-		}
-	}
-	estimatedNDV := observedNDV + (2*n-3)/n*f1 - (n-2)*(n-2)/n/(n-1)*f2
-	return estimatedNDV
-}
-
-// https://github.com/postgres/postgres/blob/master/src/backend/commands/analyze.c#L2210-L2252
-func duj1Estimator(samples []uint64, N int64) float64 {
-	h := make(map[uint64]uint64, 1000)
-	for _, x := range samples {
-		h[x] = h[x] + 1
-	}
-	n := float64(len(samples))
-	observedNDV := float64(len(h))
-	f1 := 0.0
-	for _, frequency := range h {
-		if frequency == 1 {
-			f1 += 1
-		}
-	}
-	estimatedNDV := n * observedNDV / (n - f1 + f1*n/float64(N))
-	return estimatedNDV
-}
-
 func qerror(act, est float64) float64 {
 	if act > est {
 		return act / est
@@ -120,7 +64,7 @@ func benchSampleBasedEstimators() {
 			results[i] = make([]float64, len(sampleRateList))
 		}
 		estimatorNames := []string{"first-order Jackknife", "second-order Jackknife", "Duj1"}
-		estimators := []func(samples []uint64, N int64) float64{firstOrderJackknifeEstimator, secondOrderJackknifeEstimator, duj1Estimator}
+		estimators := []func(samples []uint64, N int64) float64{FirstOrderJackknifeEstimator, SecondOrderJackknifeEstimator, Duj1Estimator}
 		for i, sampleRate := range sampleRateList {
 			samples := sampleData(data, sampleRate)
 			for j, name := range estimatorNames {
@@ -167,7 +111,7 @@ func testHyperLogLog() {
 	data := generateZipfData(s, v, imax, N)
 	actNDV := exactNDV(data)
 	fmt.Printf("zipf dist: s:%v, v:%v, [0, %v], N:%v, NDV:%v\n", s, v, imax, N, actNDV)
-	registers := uint32(1024)
+	registers := uint32(1 << 16)
 	hll, err := NewHyperLogLog(registers)
 	if err != nil {
 		panic(err)
