@@ -98,7 +98,7 @@ func (h *HyperLogLog) InsertValue(value []byte) error {
 }
 
 // Count returns the estimated NDV.
-func (h *HyperLogLog) Count() uint64 {
+func (h *HyperLogLog) Count() float64 {
 	sum := 0.0
 	m := float64(h.m)
 	for _, val := range h.registers {
@@ -117,7 +117,7 @@ func (h *HyperLogLog) Count() uint64 {
 			estimate = m * math.Log(m/float64(zeros))
 		}
 	}
-	return uint64(estimate + 0.5)
+	return estimate
 }
 
 // Merge merges another HyperLogLog into this one. The number of registers in each must be the same.

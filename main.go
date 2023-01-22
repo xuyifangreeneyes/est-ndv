@@ -123,7 +123,7 @@ func testHyperLogLog() {
 		}
 	}
 	estNDV := hll.Count()
-	qe := qerror(float64(actNDV), float64(estNDV))
+	qe := qerror(float64(actNDV), estNDV)
 	fmt.Printf("HyperLogLog, registers: %v, NDV:%v, q-error:%v\n", registers, estNDV, qe)
 
 }
